@@ -1,10 +1,15 @@
-const app = require('express')();
+const express = require('express');
+const app = express();
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const fs = require('fs');
 const moment = require('moment');
+const path = require('path');
 const port = process.env.port || 3001;
-const caching = require('./caching')
+let caching;
+if (process.env.isRedisEnable) {
+    caching = require('./caching');
+}
 
 
 // For high performance Redis is used but it's like a feature
@@ -29,20 +34,40 @@ if (process.env.isRedisEnabled && isRedisSync === false) {
 
 app.use(cors());
 app.use(bodyParser.urlencoded({ extended: true }))
+app.use(express.static(path.join(__dirname, 'dist'))); //  "public" off of current is root
+
 
 // At the time of the posting the logs we will be updating the cache
 // Get all the logs 
 
 app.get('/', (req, res) => {
+    res.sendFile(`${__dirname}/dist/index.html`);
+})
+
+app.get('/api/', async (req, res) => {
     try {
-        res.json(JSON.parse(allLogs));
+        let allLogs = fs.readFileSync(__dirname + '/json-data/logs.json', 'utf8');
+        allLogs = JSON.parse(allLogs);
+        const map = new Map();
+        for (const item of allLogs) {
+            if (map.has(item.number)) {
+                console.log('available');
+                map.set(item.number, map.get(item.number) + 1);
+            } else {
+                console.log('not available');
+                map.set(item.number, 1);
+            }
+
+            console.log(map)
+        }
+        res.json(await map);
     } catch (error) {
         res.json({ message: 'Something went wrong' })
     }
 })
 
 // Get agent by id with resolution
-app.get('/agent/:agentId', async (req, res) => {
+app.get('/api/agent/:agentId', async (req, res) => {
     const { agentId } = req.params;
     if (agentId) {
         try {
@@ -82,7 +107,7 @@ app.get('/agent/:agentId', async (req, res) => {
 })
 
 // Get call details by number
-app.get('/call/:number', async (req, res) => {
+app.get('/api/call/:number', async (req, res) => {
     const { number } = req.params;
     if (number) {
         try {
