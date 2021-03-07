@@ -4,7 +4,6 @@ const bodyParser = require('body-parser');
 const cors = require('cors');
 const fs = require('fs');
 const moment = require('moment');
-const path = require('path');
 const port = process.env.port || 3001;
 let caching;
 if (process.env.isRedisEnable) {
@@ -34,40 +33,58 @@ if (process.env.isRedisEnabled && isRedisSync === false) {
 
 app.use(cors());
 app.use(bodyParser.urlencoded({ extended: true }))
-app.use(express.static(path.join(__dirname, 'dist'))); //  "public" off of current is root
+// app.use(express.static(path.join(__dirname, 'dist'))); //  "public" off of current is root
 
 
 // At the time of the posting the logs we will be updating the cache
 // Get all the logs 
 
-app.get('/', (req, res) => {
-    res.sendFile(`${__dirname}/dist/index.html`);
-})
 
-app.get('/api/', async (req, res) => {
+app.get('/', async (req, res) => {
     try {
         let allLogs = fs.readFileSync(__dirname + '/json-data/logs.json', 'utf8');
         allLogs = JSON.parse(allLogs);
         const map = new Map();
-        for (const item of allLogs) {
-            if (map.has(item.number)) {
-                console.log('available');
-                map.set(item.number, map.get(item.number) + 1);
-            } else {
-                console.log('not available');
-                map.set(item.number, 1);
-            }
+        allLogs.map((item) => {
+            const { dateTime, identifier, agentIdentifier } = item;
 
-            console.log(map)
-        }
-        res.json(await map);
+            if (map.has(item.number)) {
+                const existingData = map.get(item.number);
+                let lastCallTiming = existingData.dateTime;
+                if (existingData.dateTime < item.dateTime) {
+                    lastCallTiming = item.dateTime;
+                }
+                const details = {
+                    calls: existingData.calls + 1,
+                    dateTime: moment(lastCallTiming).format('DD/MM/YYYY HH:mm:ss'),
+                    agentIdentifier
+                };
+                map.set(item.number, details);
+            } else {
+                map.set(item.number, {
+                    calls: 1,
+                    dateTime: moment(item.dateTime).format('DD/MM/YYYY HH:mm:ss'),
+                    agentIdentifier
+                });
+            }
+        })
+        const response = await Array.from(map).map(([name, value]) => {
+            return {
+                phone: name,
+                calls: value.calls,
+                dateTime: value.dateTime,
+                agentId: value.agentIdentifier
+            }
+        });
+        res.json(response);
     } catch (error) {
+        console.log(error)
         res.json({ message: 'Something went wrong' })
     }
 })
 
 // Get agent by id with resolution
-app.get('/api/agent/:agentId', async (req, res) => {
+app.get('/agent/:agentId', async (req, res) => {
     const { agentId } = req.params;
     if (agentId) {
         try {
@@ -107,7 +124,7 @@ app.get('/api/agent/:agentId', async (req, res) => {
 })
 
 // Get call details by number
-app.get('/api/call/:number', async (req, res) => {
+app.get('/call/:number', async (req, res) => {
     const { number } = req.params;
     if (number) {
         try {
